@@ -187,119 +187,356 @@
     </a-scene>
 
 
+   <script>
 
-    <script>
-
-        const scene =
-            document.querySelector("#arScene");
-
-
-        const gateTarget =
-            document.querySelector("#gateTarget");
+    /*
+     * --------------------------------------------------------
+     * NeppuLand WebAR Gate
+     * --------------------------------------------------------
+     */
 
 
-        const statusPanel =
-            document.querySelector("#statusPanel");
+    const scene =
+        document.querySelector("#arScene");
 
+
+    const gateTarget =
+        document.querySelector("#gateTarget");
+
+
+    const statusPanel =
+        document.querySelector("#statusPanel");
+
+
+    /*
+     * 防止 Target Found 重複觸發。
+     *
+     * 一旦 Gate 已經開始開啟，
+     * 就不再接受新的 targetFound / targetLost。
+     */
+    let gateOpening = false;
+
+
+
+    /*
+     * --------------------------------------------------------
+     * MindAR 初始化完成
+     * --------------------------------------------------------
+     */
+
+    scene.addEventListener(
+        "arReady",
+        () =>
+        {
+            console.log(
+                "[MindAR] AR Ready"
+            );
+
+
+            statusPanel.textContent =
+                "請將攝影機對準指定卡片";
+        }
+    );
+
+
+
+    /*
+     * --------------------------------------------------------
+     * MindAR 初始化錯誤
+     * --------------------------------------------------------
+     */
+
+    scene.addEventListener(
+        "arError",
+        (event) =>
+        {
+            console.error(
+                "[MindAR] AR Error",
+                event
+            );
+
+
+            statusPanel.textContent =
+                "無法啟動 AR，請確認攝影機權限";
+
+
+            statusPanel.classList.remove(
+                "found"
+            );
+
+
+            statusPanel.classList.add(
+                "error"
+            );
+        }
+    );
+
+
+
+    /*
+     * --------------------------------------------------------
+     * 產生 Prototype Gate Token
+     * --------------------------------------------------------
+     *
+     * 現在只是 Prototype。
+     *
+     * 未來我們會把這裡改成：
+     *
+     * WebAR
+     * ↓
+     * ASP.NET Core Server
+     * ↓
+     * Server 簽發真正 Gate Token
+     *
+     * 現階段先由 Browser 產生 UUID。
+     */
+
+    function createGateToken()
+    {
+        if (
+            window.crypto &&
+            typeof window.crypto.randomUUID === "function"
+        )
+        {
+            return window.crypto.randomUUID();
+        }
 
 
         /*
-         * MindAR 完成初始化
+         * 舊瀏覽器備援。
+         *
+         * Prototype 用即可，
+         * 不當作真正安全 Token。
          */
-
-        scene.addEventListener(
-            "arReady",
-            () =>
-            {
-                console.log(
-                    "[MindAR] AR Ready"
-                );
-
-
-                statusPanel.textContent =
-                    "請將攝影機對準指定卡片";
-            }
+        return (
+            Date.now().toString(36) +
+            "-" +
+            Math.random().toString(36).substring(2)
         );
+    }
 
 
 
-        /*
-         * MindAR 發生錯誤
-         */
+    /*
+     * --------------------------------------------------------
+     * 成功辨識 Target Image
+     * --------------------------------------------------------
+     */
 
-        scene.addEventListener(
-            "arError",
-            (event) =>
+    gateTarget.addEventListener(
+        "targetFound",
+        () =>
+        {
+            /*
+             * 已經開門的話，
+             * 不允許再次觸發。
+             */
+            if (gateOpening)
             {
-                console.error(
-                    "[MindAR] AR Error",
-                    event
-                );
-
-
-                statusPanel.textContent =
-                    "無法啟動 AR，請確認攝影機權限";
-
-                statusPanel.classList.add(
-                    "error"
-                );
+                return;
             }
-        );
+
+
+            gateOpening = true;
+
+
+            console.log(
+                "[MindAR] Target Found"
+            );
+
+
+            /*
+             * 顯示成功訊息
+             */
+            statusPanel.textContent =
+                "辨識成功！ACCESS GRANTED";
+
+
+            statusPanel.classList.remove(
+                "error"
+            );
+
+
+            statusPanel.classList.add(
+                "found"
+            );
 
 
 
-        /*
-         * 成功辨識 Target Image
-         */
+            /*
+             * 建立 Gate Token
+             */
+            const gateToken =
+                createGateToken();
 
-        gateTarget.addEventListener(
-            "targetFound",
-            () =>
+
+            console.log(
+                "[Gate] Generated Token:",
+                gateToken
+            );
+
+
+
+            /*
+             * 先讓 ACCESS GRANTED
+             * 顯示 1.2 秒。
+             *
+             * 然後：
+             *
+             * 1. 停止 MindAR
+             * 2. 釋放 Camera
+             * 3. 建立 Unity URL
+             * 4. 把 Gate Token 加進網址
+             * 5. 跳轉到 Unity
+             */
+
+            setTimeout(
+                async () =>
+                {
+                    /*
+                     * -------------------------
+                     * 停止 MindAR
+                     * -------------------------
+                     */
+
+                    try
+                    {
+                        const arSystem =
+                            scene.systems[
+                                "mindar-image-system"
+                            ];
+
+
+                        if (arSystem)
+                        {
+                            await Promise.resolve(
+                                arSystem.stop()
+                            );
+
+
+                            console.log(
+                                "[MindAR] AR stopped"
+                            );
+                        }
+                    }
+                    catch (error)
+                    {
+                        /*
+                         * 即使停止 Camera 失敗，
+                         * 還是繼續進 Unity。
+                         */
+
+                        console.warn(
+                            "[MindAR] Failed to stop AR:",
+                            error
+                        );
+                    }
+
+
+
+                    /*
+                     * -------------------------
+                     * 建立 Unity World URL
+                     * -------------------------
+                     *
+                     * 目前網頁：
+                     *
+                     * https://ghiblirider2.github.io/
+                     * NeppuLand-prototype/
+                     *
+                     * ./world/
+                     *
+                     * 會自動得到：
+                     *
+                     * https://ghiblirider2.github.io/
+                     * NeppuLand-prototype/world/
+                     */
+
+                    const worldURL =
+                        new URL(
+                            "./world/",
+                            window.location.href
+                        );
+
+
+
+                    /*
+                     * 加入 Gate Token
+                     *
+                     * 結果：
+                     *
+                     * /world/
+                     * ?gateToken=xxxxxxxx
+                     */
+
+                    worldURL.searchParams.set(
+                        "gateToken",
+                        gateToken
+                    );
+
+
+
+                    console.log(
+                        "[Gate] Entering NeppuLand:",
+                        worldURL.toString()
+                    );
+
+
+
+                    /*
+                     * -------------------------
+                     * 正式進入 Unity
+                     * -------------------------
+                     */
+
+                    window.location.href =
+                        worldURL.toString();
+                },
+
+                1200
+            );
+        }
+    );
+
+
+
+    /*
+     * --------------------------------------------------------
+     * Target Image 離開攝影機
+     * --------------------------------------------------------
+     */
+
+    gateTarget.addEventListener(
+        "targetLost",
+        () =>
+        {
+            /*
+             * Gate 已經開啟之後，
+             * 不要再改畫面。
+             */
+            if (gateOpening)
             {
-                console.log(
-                    "[MindAR] Target Found"
-                );
-
-
-                statusPanel.textContent =
-                    "辨識成功！ACCESS GRANTED";
-
-                statusPanel.classList.remove(
-                    "error"
-                );
-
-                statusPanel.classList.add(
-                    "found"
-                );
+                return;
             }
-        );
 
 
-
-        /*
-         * Target Image 離開攝影機
-         */
-
-        gateTarget.addEventListener(
-            "targetLost",
-            () =>
-            {
-                console.log(
-                    "[MindAR] Target Lost"
-                );
+            console.log(
+                "[MindAR] Target Lost"
+            );
 
 
-                statusPanel.textContent =
-                    "圖片已離開畫面，請重新掃描";
-
-                statusPanel.classList.remove(
-                    "found"
-                );
-            }
-        );
+            statusPanel.textContent =
+                "圖片已離開畫面，請重新掃描";
 
 
-    </script>
+            statusPanel.classList.remove(
+                "found"
+            );
+        }
+    );
+
+
+</script>
 
 
 </body>
